@@ -241,30 +241,59 @@ public class Paging {
 	
 	// complete this method
 	// <----------------------------------------------------------------------------
-	public int replacePageCLOCK(int replacePageNum) {
-    	while (true) {
-        	int currentPage = pageBuffer[bufPointer];
-        	if (pageTable[currentPage].r == 0) {
-            	// Found a page to replace
-            	int freedFrame = pageTable[currentPage].frame;
-            	// Clear the old page table entry
-            	updatePageTableEntry(currentPage, -1, (byte)0, (byte)0, (byte)0, (byte)0, 0, 0);
-            	// Assign the free frame to the new page
-            	updatePageTableEntry(replacePageNum, freedFrame, (byte)1, (byte)0, (byte)0, (byte)0, kernel.clock, kernel.clock);
-            	// Update the buffer and control panel
-            	pageBuffer[bufPointer] = replacePageNum;
-            	bufPointer = (bufPointer + 1) % numPhysicalPages;
-            	controlPanel.removePhysicalPage(currentPage);
-            	controlPanel.addPhysicalPage(replacePageNum, freedFrame);
-            	logReplacement(currentPage, replacePageNum, freedFrame);
-            	return replacePageNum;
-        	} else {
-            	// Give a second chance
-            	pageTable[currentPage].r = 0;
-            	bufPointer = (bufPointer + 1) % numPhysicalPages;
-        	}
-    	}
-	}
+public int replacePageCLOCK(int replacePageNum) {
+    int startPointer = bufPointer;
+    while (true) {
+        int currentPage = pageBuffer[bufPointer];
+
+        // 1. Skip empty slots
+        if (currentPage == -1) {
+            bufPointer = (bufPointer + 1) % numPhysicalPages;
+            if (bufPointer == startPointer) break; // Emergency exit
+            continue;
+        }
+
+        // 2. Found a victim (R=0)
+        if (pageTable[currentPage].r == 0) {
+            int freedFrame = pageTable[currentPage].frame;
+
+            updatePageTableEntry(currentPage, -1, (byte)0, (byte)0, (byte)0, (byte)0, 0, 0);
+            controlPanel.removePhysicalPage(currentPage); // RE-ADDED
+
+            updatePageTableEntry(replacePageNum, freedFrame, (byte)1, (byte)0, (byte)0, (byte)0, kernel.clock, kernel.clock);
+            controlPanel.addPhysicalPage(replacePageNum, freedFrame); // RE-ADDED
+
+            pageBuffer[bufPointer] = replacePageNum;
+            bufPointer = (bufPointer + 1) % numPhysicalPages;
+
+            logReplacement(currentPage, replacePageNum, freedFrame);
+            return replacePageNum;
+        } else {
+            // 3. Give Second Chance
+            pageTable[currentPage].r = 0;
+            bufPointer = (bufPointer + 1) % numPhysicalPages;
+        }
+
+        // 4. Safety Fallback (Full circle completed)
+        if (bufPointer == startPointer) {
+            int victim = pageBuffer[bufPointer];
+            int freedFrame = pageTable[victim].frame;
+
+            updatePageTableEntry(victim, -1, (byte)0, (byte)0, (byte)0, (byte)0, 0, 0);
+            controlPanel.removePhysicalPage(victim); // RE-ADDED
+
+            updatePageTableEntry(replacePageNum, freedFrame, (byte)1, (byte)0, (byte)0, (byte)0, kernel.clock, kernel.clock);
+            controlPanel.addPhysicalPage(replacePageNum, freedFrame); // RE-ADDED
+
+            pageBuffer[bufPointer] = replacePageNum;
+            bufPointer = (bufPointer + 1) % numPhysicalPages;
+
+            logReplacement(victim, replacePageNum, freedFrame);
+            return replacePageNum;
+        }
+    }
+    return -1; 
+}
 	
 	private void logReplacement(int oldPage, int newPage, int frame) {
 		kernel.logMessage("Replace Page (" + replaceOption + ") replaced page "
