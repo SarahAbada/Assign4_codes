@@ -160,6 +160,8 @@ public class Paging {
 		} else // no page fault
 		{
 			controlPanel.pageFaultValueLabel.setText("NO");
+			pageTable[pageNum].lastTouchTime = kernel.clock;
+    		pageTable[pageNum].r = 1;
 		}
 		return (pageNum);
 	}
@@ -215,13 +217,53 @@ public class Paging {
 	// complete this method
 	// <----------------------------------------------------------------------------
 	public int replacePageLRU(int replacePageNum) {
-		return (replacePageNum);
+		int oldestPage = -1;
+    	long oldestTime = Long.MAX_VALUE;
+    	// Find the page with the oldest lastTouchTime
+    	for (int i = 0; i < numVirtualPages; i++) {
+        	if (pageTable[i].p == 1 && pageTable[i].lastTouchTime < oldestTime) {
+            	oldestTime = pageTable[i].lastTouchTime;
+            	oldestPage = i;
+        	}
+    	}
+    	// Free the frame from the oldest page
+    	int freedFrame = pageTable[oldestPage].frame;
+    	// Clear the old page table entry
+    	updatePageTableEntry(oldestPage, -1, (byte)0, (byte)0, (byte)0, (byte)0, 0, 0);
+    	// Assign the free frame to the new page
+    	updatePageTableEntry(replacePageNum, freedFrame, (byte)1, (byte)0, (byte)0, (byte)0, kernel.clock, kernel.clock);
+    	// Update control panel and log
+    	controlPanel.removePhysicalPage(oldestPage);
+    	controlPanel.addPhysicalPage(replacePageNum, freedFrame);
+    	logReplacement(oldestPage, replacePageNum, freedFrame);
+    return replacePageNum;
 	}
 	
 	// complete this method
 	// <----------------------------------------------------------------------------
 	public int replacePageCLOCK(int replacePageNum) {
-		return (replacePageNum);
+    	while (true) {
+        	int currentPage = pageBuffer[bufPointer];
+        	if (pageTable[currentPage].r == 0) {
+            	// Found a page to replace
+            	int freedFrame = pageTable[currentPage].frame;
+            	// Clear the old page table entry
+            	updatePageTableEntry(currentPage, -1, (byte)0, (byte)0, (byte)0, (byte)0, 0, 0);
+            	// Assign the free frame to the new page
+            	updatePageTableEntry(replacePageNum, freedFrame, (byte)1, (byte)0, (byte)0, (byte)0, kernel.clock, kernel.clock);
+            	// Update the buffer and control panel
+            	pageBuffer[bufPointer] = replacePageNum;
+            	bufPointer = (bufPointer + 1) % numPhysicalPages;
+            	controlPanel.removePhysicalPage(currentPage);
+            	controlPanel.addPhysicalPage(replacePageNum, freedFrame);
+            	logReplacement(currentPage, replacePageNum, freedFrame);
+            	return replacePageNum;
+        	} else {
+            	// Give a second chance
+            	pageTable[currentPage].r = 0;
+            	bufPointer = (bufPointer + 1) % numPhysicalPages;
+        	}
+    	}
 	}
 	
 	private void logReplacement(int oldPage, int newPage, int frame) {
